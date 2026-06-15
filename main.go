@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 )
 
 type User struct {
@@ -34,7 +35,7 @@ func main() {
 	mux.HandleFunc("GET /health", healthHandler)
 	mux.HandleFunc("POST /createUser", createHandler)
 	mux.HandleFunc("GET /users", getUsersHandler)
-
+	mux.HandleFunc("GET /users/{id}", getSingleUsersHandler)
 	fmt.Println("Server is running at port 5000")
 	err := http.ListenAndServe(":5000", mux)
 	if err != nil {
@@ -79,4 +80,23 @@ func getUsersHandler(w http.ResponseWriter, r *http.Request) {
 	// w.Write(data)
 	json.NewEncoder(w).Encode(users)
 
+}
+
+func getSingleUsersHandler(w http.ResponseWriter, r *http.Request) {
+	idParam := r.PathValue("id")
+
+	id, err := strconv.Atoi(idParam)
+
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintln(w, "Invalid user id")
+		return
+	}
+
+	for _, user := range users {
+		if user.Id == id {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(user)
+		}
+	}
 }
