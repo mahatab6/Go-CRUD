@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"slices"
 )
 
 type User struct {
@@ -37,6 +38,7 @@ func main() {
 	mux.HandleFunc("GET /users", getUsersHandler)
 	mux.HandleFunc("GET /users/{id}", getSingleUsersHandler)
 	mux.HandleFunc("PUT /users/{id}", updateUsersHandler)
+	mux.HandleFunc("DELETE /users/{id}", deleteUserHandler)
 	fmt.Println("Server is running at port 5000")
 	err := http.ListenAndServe(":5000", mux)
 	if err != nil {
@@ -133,6 +135,31 @@ func updateUsersHandler(w http.ResponseWriter, r *http.Request) {
 			users[i] = updatedUser
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(updatedUser)
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusNotFound)
+	fmt.Fprintln(w, "User not found")
+}
+
+func deleteUserHandler(w http.ResponseWriter, r *http.Request) {
+	idParam := r.PathValue("id")
+
+	id, err := strconv.Atoi(idParam)
+
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintln(w, "Invalid user id")
+		return
+	}
+
+	for i, user := range users {
+		if user.Id == id {
+			// users = append(users[:i], users[i+1:]...)
+
+			users = slices.Delete(users, i, i+1)
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 	}
