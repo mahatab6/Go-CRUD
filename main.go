@@ -1,36 +1,55 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"slices"
+	"strconv"
+
+	"github.com/jackc/pgx/v5"
 )
 
+var db *pgx.Conn
+
 type User struct {
-	Id    int    `json:"id"`
-	Name  string `json:"name"`
-	Age   int    `json:"age"`
-	Email string `json:"email"`
+	Id       int    `json:"id"`
+	Username string `json:"username,omitempty"`
+	Age      int    `json:"age"`
+	Email    string `json:"email"`
 }
 
 var users = []User{
 	{
-		Id:    1,
-		Name:  "Kamal",
-		Age:   25,
-		Email: "kamal@mail.com",
+		Id:       1,
+		Username: "Kamal",
+		Age:      25,
+		Email:    "kamal@mail.com",
 	},
 	{
-		Id:    2,
-		Name:  "Jamal",
-		Age:   20,
-		Email: "jamal@mail.com",
+		Id:       2,
+		Username: "Jamal",
+		Age:      20,
+		Email:    "jamal@mail.com",
 	},
 }
 
+func connectDB() {
+	connString := "postgres://postgres:raju92@localhost:5432/go-crud"
+
+	conn, err := pgx.Connect(context.Background(), connString)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Connected to database successfully")
+	db = conn
+}
+
 func main() {
+	connectDB()
+	defer db.Close(context.Background())
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", rootHandler)
 	mux.HandleFunc("GET /health", healthHandler)
@@ -68,8 +87,19 @@ func createHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Printf("Received new user: %+v\n", newUser)
 
-	newUser.Id = len(users) + 1
-	users = append(users, newUser)
+	// newUser.Id = len(users) + 1
+	// users = append(users, newUser)
+
+	query := "INSERT INTO users (username, age, email) VALUES ($1, $2, $3) RETURNING id"
+
+	err = db.QueryRow(context.Background(), query, newUser.Username, newUser.Age, newUser.Email).Scan(&newUser.Id)
+
+	if err != nil {
+		fmt.Println("Error inserting user into database", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintln(w, "Failed to create user")
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -78,9 +108,41 @@ func createHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func getUsersHandler(w http.ResponseWriter, r *http.Request) {
+
+	query := "SELECT id, username, age, email FROM users"
+	rows, err := db.Query(context.Background(), query)
+
+	if err != nil {
+		fmt.Println("Error fetching users from database", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintln(w, "Failed to fetch users")
+		return
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var user User
+		err = rows.Scan(&user.Id, &user.Username, &user.Age, &user.Email)
+		if err != nil {
+			fmt.Println("Error scanning user row", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintln(w, "Failed to scan user")
+			return
+		}
+		users = append(users, user)
+	}
+
+	err = rows.Err()
+
+	if err != nil {
+		fmt.Println("Error occurred while iterating over rows", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintln(w, "Failed to fetch users")
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	// data, _ := json.Marshal(users)
-	// w.Write(data)
 	json.NewEncoder(w).Encode(users)
 
 }
@@ -129,18 +191,24 @@ func updateUsersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for i, user := range users {
-		if user.Id == id {
-			updatedUser.Id = id
-			users[i] = updatedUser
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(updatedUser)
-			return
-		}
+	query := "UPDATE users SET username = $1, age = $2, email = $3 WHERE id = $4 RETURNING id"
+	err = db.QueryRow(context.Background(), query, updatedUser.Username, updatedUser.Age, updatedUser.Email, id).Scan(&updatedUser.Id)
+
+	if err == pgx.ErrNoRows {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintln(w, "User not found")
+		return
 	}
 
-	w.WriteHeader(http.StatusNotFound)
-	fmt.Fprintln(w, "User not found")
+	if err != nil {
+		fmt.Println("Error updating user in database", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintln(w, "Failed to update user")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(updatedUser)
 }
 
 func deleteUserHandler(w http.ResponseWriter, r *http.Request) {
