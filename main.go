@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/joho/godotenv"
 )
 
 var db *pgx.Conn
@@ -35,7 +37,7 @@ var users = []User{
 }
 
 func connectDB() {
-	connString := "postgres://postgres:raju92@localhost:5432/go-crud"
+	connString := os.Getenv("DB_STRING")
 
 	conn, err := pgx.Connect(context.Background(), connString)
 	if err != nil {
@@ -47,6 +49,12 @@ func connectDB() {
 }
 
 func main() {
+	var err error
+	err = godotenv.Load()
+	if err != nil {
+		panic(err)
+	}
+
 	connectDB()
 	defer db.Close(context.Background())
 	mux := http.NewServeMux()
@@ -58,7 +66,7 @@ func main() {
 	mux.HandleFunc("PUT /users/{id}", updateUsersHandler)
 	mux.HandleFunc("DELETE /users/{id}", deleteUserHandler)
 	fmt.Println("Server is running at port 5000")
-	err := http.ListenAndServe(":5000", mux)
+	err = http.ListenAndServe(":5000", mux)
 	if err != nil {
 		fmt.Println("Server error", err)
 	}
