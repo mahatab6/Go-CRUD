@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"slices"
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
@@ -158,16 +157,26 @@ func getSingleUsersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, user := range users {
-		if user.Id == id {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(user)
-			return
-		}
+	var user User
+
+	query := "SELECT id, username, age, email FROM users WHERE id = $1"
+	err = db.QueryRow(context.Background(), query, id).Scan(&user.Id, &user.Username, &user.Age, &user.Email)
+
+	if err == pgx.ErrNoRows {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintln(w, "User not found")
+		return
 	}
 
-	w.WriteHeader(http.StatusBadRequest)
-	fmt.Fprintln(w, "User not found")
+	if err != nil {
+		fmt.Println("Error fetching user from database", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintln(w, "Failed to fetch user")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(user)
 }
 
 func updateUsersHandler(w http.ResponseWriter, r *http.Request) {
@@ -222,16 +231,23 @@ func deleteUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for i, user := range users {
-		if user.Id == id {
-			// users = append(users[:i], users[i+1:]...)
+	query := "DELETE FROM users WHERE id = $1 RETURNING id"
 
-			users = slices.Delete(users, i, i+1)
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
+	cmdTag, err := db.Exec(context.Background(), query, id)
+
+	if err != nil {
+		fmt.Println("Error deleting user from database", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintln(w, "Failed to delete user")
+		return
 	}
 
-	w.WriteHeader(http.StatusNotFound)
-	fmt.Fprintln(w, "User not found")
+	if cmdTag.RowsAffected() == 0 {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintln(w, "User not found")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+	fmt.Fprintln(w, "User deleted successfully")
 }
